@@ -16,7 +16,7 @@ import Html.Events.Extra.Mouse as Mouse
 import Length
 import Point2d
 import Vector2d
---import Random
+import Random
 
 
 type Msg
@@ -24,19 +24,27 @@ type Msg
     | StartAt Mouse.Event
     --| MoveAt Mouse.Event
     --| EndAt Mouse.Event
+    -- from_x, to_x, radius, velocity
+    --| MintBubble ( Float, Float, Float, Float )
+    | MintBubble Float
 
 
-width = 400
-height = 512
+canvasWidth = 400
+canvasHeight = 512
+maxBubblesCount = 7
+bubbleGenerationRate = 0.05
+bubbleMinSpeed = 2.5
+bubbleMaxSpeed = 5.0
+bubbleMinRadius = 20
+bubbleMaxRadius = 90
+bubbleMinX = 30
+bubbleMaxX = canvasWidth - bubbleMinX
+bubbleGenerator = Random.float bubbleMinX bubbleMaxX
 
 
 main =
     Browser.element
-    { init = init
-    , view = view
-    , update = update
-    , subscriptions = \model -> onAnimationFrameDelta Tick
-    }
+    { init = init, view = view, update = update, subscriptions = subscriptions }
 
 
 init () =
@@ -67,7 +75,7 @@ view model =
     [ style "display" "flex", style "justify-content" "center"
     , style "align-items" "center" ]
     [ Canvas.toHtml
-        ( width, height )
+        ( canvasWidth, canvasHeight )
         [ style "border" "10px solid rgba(0,0,0,0.1)"
         , Mouse.onDown StartAt ]
         --, Mouse.onMove MoveAt
@@ -83,13 +91,32 @@ update message model =
         Tick _ -> ( { model
                 | tick = model.tick + 1
                 , bubbles = moveBubbles model.bubbles
+            },
+                if 
+                    ( List.length model.bubbles < maxBubblesCount ) &&
+                    ( remainderBy 100 model.tick == 0 )
+                then
+                    Random.generate MintBubble bubbleGenerator
+                else
+                    Cmd.none
+            )
+
+        StartAt mouseEvent ->
+            ( burstBubbles model mouseEvent, Cmd.none )
+
+        MintBubble x -> ( { model
+                | bubbles = mintBubble model.bubbles x
             }, Cmd.none )
-        StartAt mouseEvent -> ( burst model mouseEvent, Cmd.none )
+
         --MoveAt _ -> ( model, Cmd.none )
         --EndAt _ -> ( model, Cmd.none )
 
 
-burst model mouseEvent =
+subscriptions model =
+    onAnimationFrameDelta Tick
+
+
+burstBubbles model mouseEvent =
     let
         isTouched touchPos bubble =
             Circle2d.contains
@@ -117,16 +144,28 @@ burst model mouseEvent =
 moveBubbles bubbles = 
     let
         moveBubble bubble =
-            { bubble
-            | shape = Circle2d.translateBy bubble.velocity bubble.shape }
+            { bubble | shape =
+                Circle2d.translateBy bubble.velocity bubble.shape }
     in
         List.map moveBubble bubbles
+
+
+mintBubble bubbles x =
+    { shape =
+        Circle2d.atPoint
+        ( Point2d.fromTuple Length.cssPixels ( x, 0 ) )  -- center
+        ( Length.cssPixels 40 )  -- radius
+    , velocity =
+        Vector2d.withLength
+        ( Length.cssPixels 2.5 )  -- speed
+        Direction2d.positiveY
+    } :: bubbles
 
 
 clearCanvas =
     Canvas.shapes
     [ fill Color.darkGreen ]
-    [ Canvas.rect ( 0, 0 ) width height ]
+    [ Canvas.rect ( 0, 0 ) canvasWidth canvasHeight ]
 
 
 renderBubbles bubbles =
@@ -146,5 +185,5 @@ renderScores model =
     Canvas.text
     [ font { size = 24, family = "serif" } , align Left, baseLine Top ]
     ( 4, 6 )  -- padding
-    ( "Scores = " ++ String.fromInt model.scores
-    ++ ", Tick = " ++ String.fromInt model.tick )
+    ( "Scores = " ++ String.fromInt model.scores ++ ", Tick = "
+    ++ String.fromInt model.tick )
